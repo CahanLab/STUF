@@ -1,0 +1,634 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from anndata import AnnData
+from .helpers import _smooth_contour, _temp_plt_axes, make_bivariate_cmap
+from matplotlib.colors import to_hex, ListedColormap
+from scipy.interpolate import griddata
+from scipy.ndimage import gaussian_filter
+from typing import Union, Sequence, Callable, Optional, Dict, Tuple
+import math
+
+def embed_obsm(
+    adata: AnnData,
+    feature: str,
+    obsm_name: str,
+    embedding_key: str  = 'X_spatial',
+    alpha: float = 0.75,
+    s: float = 10,
+    cmap: Union[str, plt.Colormap] = 'Greens',
+    ax = None,
+    display: bool = True,
+    **kwargs
+):
+    """
+    plot specified 2d embedding, one axis per feature
+
+    Args:
+        adata (AnnData): 
+            The AnnData object containing the scRNA-seq data.
+        features (list): 
+            A list of columns in .obsm[obs_name] to show
+        obsm_name (str, optional): 
+            The name of the obsm key containing the values to show
+        alpha (float, optional): 
+            The transparency level of the points on the UMAP plot. Defaults to 0.75.
+        s (int, optional): 
+            The size of the points on the UMAP plot. Defaults to 10.
+        display (bool, optional): 
+            If True, the plot is displayed immediately. If False, the axis object is returned. Defaults to True.
+
+    Returns:
+        matplotlib.axes.Axes or None: 
+            If `display` is False, returns the matplotlib axes object. Otherwise, returns None.
+    """
+    # Create a temporary AnnData object with the desired obsm
+
+    # get coordinates
+    coords = adata.obsm.get(embedding_key)
+    if coords is None or coords.ndim != 2 or coords.shape[1] < 2:
+        raise ValueError(f"adata.obsm['{embedding_key}'] must be an (n_obs, 2) array.")
+    x_vals, y_vals = coords[:, 0], coords[:, 1]
+
+    if feature not in adata.obsm.columns:
+            raise ValueError(f"Feature '{feature}' not found in adata.obsm['{obsm_name}'].")
+
+    fig, ax = plt.subplots()
+    # vals = _get_array(adata.obsm[obsm_name][:, feature])
+    vals = adata.obsm[obsm_name][:, feature]
+    order = np.argsort(norm)
+    sc = ax.scatter(
+        x_vals[order],
+        y_vals[order],
+        c = vals[order],
+        cmap = cmap,
+        s = spot_size,
+        alpha = alpha,
+    )
+    ax.set_title(feature)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    # Colorbar axis on the right, spanning full height (15% margin)
+    # cbar_ax = fig.add_axes([0.88, 0.05, 0.02, 0.9])
+    # cb = fig.colorbar(scatters[0], cax=cbar_ax)
+    # cb.set_label('normalized expression')
+    return ax
+
+
+def scatter_genes_oneper(
+    adata: AnnData,
+    genes: Sequence[str],
+    embedding_key: str = "X_spatial",
+    spot_size: float = 2,
+    alpha: float = 0.9,
+    clip_percentiles: tuple = (0, 99.5),
+    log_transform: bool = True,
+    cmap: Union[str, plt.Colormap] = 'Reds',
+    figsize: Optional[tuple] = None,
+    panel_width: float = 4.0,
+    n_rows: int = 1
+) -> None:
+    """Plot expression of multiple genes on a 2D embedding arranged in a grid.
+
+    Each gene is optionally log-transformed, percentile-clipped, and rescaled to [0,1].
+    Cells are plotted on the embedding, colored by expression, with highest values
+    drawn on top. A single colorbar is placed to the right of the grid.
+    If `figsize` is None, each panel has width `panel_width` and height
+    proportional to the embedding's aspect ratio; total figure dims reflect
+    `n_rows` and computed columns.
+
+    Args:
+        adata: AnnData containing the embedding in `adata.obsm[embedding_key]`.
+        embedding_key: Key in `.obsm` for an (n_obs, 2) coordinate array.
+        genes: List of gene names to plot (must be in `adata.var_names`).
+        spot_size: Marker size for scatter plots. Default 2.
+        alpha: Transparency for markers. Default 0.9.
+        clip_percentiles: (low_pct, high_pct) to clip expression before rescaling.
+        log_transform: If True, apply `np.log1p` to raw expression.
+        cmap: Colormap or name for all plots.
+        figsize: (width, height) of entire figure. If None, computed from
+            `panel_width`, `n_rows`, and embedding aspect ratio.
+        panel_width: Width (in inches) of each panel when `figsize` is None.
+        n_rows: Number of rows in the grid. Default 1.
+
+    Raises:
+        ValueError: If embedding is missing/malformed or genes not found.
+    """
+    # Helper to extract array
+    def _get_array(x):
+        return x.toarray().flatten() if hasattr(x, 'toarray') else x.flatten()
+
+    coords = adata.obsm.get(embedding_key)
+    if coords is None or coords.ndim != 2 or coords.shape[1] < 2:
+        raise ValueError(f"adata.obsm['{embedding_key}'] must be an (n_obs, 2) array.")
+    x_vals, y_vals = coords[:, 0], coords[:, 1]
+
+    n_genes = len(genes)
+    cols = math.ceil(n_genes / n_rows)
+    # Compute figsize if not provided
+    if figsize is None:
+        x_range = x_vals.max() - x_vals.min()
+        y_range = y_vals.max() - y_vals.min()
+        aspect = x_range / y_range if y_range > 0 else 1.0
+        panel_height = panel_width / aspect
+        fig_width = panel_width * cols
+        fig_height = panel_height * n_rows
+    else:
+        fig_width, fig_height = figsize
+
+    fig, axes = plt.subplots(n_rows, cols, figsize=(fig_width, fig_height), squeeze=False)
+    axes_flat = axes.flatten()
+
+    scatters = []
+    for idx, gene in enumerate(genes):
+        ax = axes_flat[idx]
+        if gene not in adata.var_names:
+            raise ValueError(f"Gene '{gene}' not found in adata.var_names.")
+        vals = _get_array(adata[:, gene].X)
+        if log_transform:
+            vals = np.log1p(vals)
+        lo, hi = np.percentile(vals, clip_percentiles)
+        clipped = np.clip(vals, lo, hi)
+        norm = (clipped - lo) / (hi - lo) if hi > lo else np.zeros_like(clipped)
+
+        order = np.argsort(norm)
+        sc = ax.scatter(
+            x_vals[order],
+            y_vals[order],
+            c=norm[order],
+            cmap=cmap,
+            s=spot_size,
+            alpha=alpha,
+            vmin=0, vmax=1
+        )
+        ax.set_title(gene)
+        ax.set_xticks([]); ax.set_yticks([])
+        scatters.append(sc)
+
+    # Turn off unused axes
+    for j in range(len(genes), n_rows*cols):
+        axes_flat[j].axis('off')
+
+    # Adjust subplots to make room for colorbar
+    fig.subplots_adjust(right=0.85)
+
+    # Colorbar axis on the right, spanning full height (15% margin)
+    cbar_ax = fig.add_axes([0.88, 0.05, 0.02, 0.9])
+    cb = fig.colorbar(scatters[0], cax=cbar_ax)
+    cb.set_label('normalized expression')
+
+    plt.tight_layout(rect=[0, 0, 0.85, 1])
+    plt.show()
+
+
+def plot_spatial_two_genes_stack(
+    adatas, 
+    gene1,
+    gene2,
+    cmap,
+    width_ratios: Tuple[float, float] = (3, 1),
+    **kwargs
+):
+    n = len(adatas)
+    fig, axes = plt.subplots(
+        n, 2,
+        figsize=(8, 4 * n),
+        gridspec_kw={'width_ratios': width_ratios,
+                     'wspace': 0.15, 'hspace': 0.2}
+    )
+    # make sure axes is 2D
+    if n == 1:
+        axes = np.expand_dims(axes, 0)
+
+    for i, ad in enumerate(adatas):
+        ax_sc, ax_cb = axes[i]
+
+        # wrap the call to guarantee cleanup
+        with _temp_plt_axes(fig, ax_sc, ax_cb):
+            try:
+                spatial_two_genes(
+                    ad, gene1, gene2, cmap, width_ratios=width_ratios, **kwargs
+                )
+            except Exception as e:
+                # you can log or print the error and continue
+                print(f"Error plotting {i}-th AnnData: {e}")
+
+        # Optional: add a row title
+        title = ad.uns.get('sample', f'Sample {i+1}')
+        ax_sc.set_title(f"{title}: {gene1} vs {gene2}")
+
+    plt.tight_layout()
+    return fig
+
+
+def spatial_two_genes(
+    adata: AnnData,
+    gene1: str,
+    gene2: str,
+    cmap: ListedColormap,
+    spot_size: float = 2,
+    alpha: float = 0.9,
+    spatial_key: str = 'X_spatial',
+    log_transform: bool = False,
+    clip_percentiles: tuple = (0, 99.5),
+    priority_metric: str = 'sum',
+    show_xcoords: bool = False,
+    show_ycoords: bool = False,
+    show_bbox: bool = False,
+    show_legend: bool = True,
+    width_ratios: Tuple[float, float] = (10, 1)
+) -> None:
+    """Plot two‐gene spatial expression with a bivariate colormap.
+
+    Args:
+        adata: AnnData with spatial coords in `adata.obsm[spatial_key]`.
+        gene1: First gene name (must be in `adata.var_names`).
+        gene2: Second gene name.
+        cmap: Bivariate colormap from `make_bivariate_cmap` (n×n LUT).
+        spot_size: Scatter point size.
+        alpha: Point alpha transparency.
+        spatial_key: Key in `adata.obsm` for an (n_obs, 2) coords array.
+        log_transform: If True, apply `np.log1p` to raw expression.
+        clip_percentiles: Tuple `(low_pct, high_pct)` to clip each gene.
+        priority_metric: Which metric to sort drawing order by:
+            - 'sum': u + v (default)
+            - 'gene1': u only
+            - 'gene2': v only
+        show_xcoords: Whether to display x-axis ticks and labels.
+        show_ycoords: Whether to display y-axis ticks and labels.
+        show_bbox: Whether to display the bounding box (spines).
+        show_legend: Whether to display the legend/colorbar.
+        width_ratios: 2‐tuple giving the relative widths of
+                  (scatter_panel, legend_panel). Defaults to (3,1).
+    
+    Raises:
+        ValueError: If spatial coords are missing/malformed or
+                    if `priority_metric` is invalid.
+    """
+    # 1) extract raw arrays
+    def _get_array(x):
+        return x.toarray().flatten() if hasattr(x, 'toarray') else x.flatten()
+    X1 = _get_array(adata[:, gene1].X)
+    X2 = _get_array(adata[:, gene2].X)
+
+    # 2) optional log1p
+    if log_transform:
+        X1 = np.log1p(X1)
+        X2 = np.log1p(X2)
+
+    # 3) percentile‐clip
+    lo1, hi1 = np.percentile(X1, clip_percentiles)
+    lo2, hi2 = np.percentile(X2, clip_percentiles)
+    X1 = np.clip(X1, lo1, hi1)
+    X2 = np.clip(X2, lo2, hi2)
+
+    # 4) normalize to [0,1]
+    u = (X1 - lo1) / (hi1 - lo1) if hi1 > lo1 else np.zeros_like(X1)
+    v = (X2 - lo2) / (hi2 - lo2) if hi2 > lo2 else np.zeros_like(X2)
+
+    # 5) prepare LUT
+    m = len(cmap.colors)
+    n = int(np.sqrt(m))
+    C = np.array(cmap.colors).reshape(n, n, 3)
+
+    # 6) bilinear interpolate per‐cell
+    gu = u * (n - 1); gv = v * (n - 1)
+    i0 = np.floor(gu).astype(int); j0 = np.floor(gv).astype(int)
+    i1 = np.minimum(i0 + 1, n - 1); j1 = np.minimum(j0 + 1, n - 1)
+    du = gu - i0; dv = gv - j0
+
+    wa = (1 - du) * (1 - dv)
+    wb = du * (1 - dv)
+    wc = (1 - du) * dv
+    wd = du * dv
+
+    c00 = C[j0, i0]; c10 = C[j0, i1]
+    c01 = C[j1, i0]; c11 = C[j1, i1]
+
+    cols_rgb = (
+        c00 * wa[:, None] +
+        c10 * wb[:, None] +
+        c01 * wc[:, None] +
+        c11 * wd[:, None]
+    )
+    hex_colors = [to_hex(c) for c in cols_rgb]
+
+    # 7) determine draw order
+    if priority_metric == 'sum':
+        priority = u + v
+    elif priority_metric == 'gene1':
+        priority = u
+    elif priority_metric == 'gene2':
+        priority = v
+    else:
+        raise ValueError("priority_metric must be 'sum', 'gene1', or 'gene2'")
+    order = np.argsort(priority)
+
+    # 8) fetch and sort coords/colors
+    coords = adata.obsm.get(spatial_key)
+    if coords is None or coords.shape[1] < 2:
+        raise ValueError(f"adata.obsm['{spatial_key}'] must be an (n_obs, 2) array")
+    coords_sorted = coords[order]
+    colors_sorted = [hex_colors[i] for i in order]
+
+    # 9) plot scatter + optional legend
+    fig, (ax_sc, ax_cb) = plt.subplots(
+        1, 2,
+        figsize=(8, 4),
+        gridspec_kw={'width_ratios': width_ratios, 'wspace': 0.3}
+    )
+    ax_sc.scatter(
+        coords_sorted[:, 0],
+        coords_sorted[:, 1],
+        c=colors_sorted,
+        s=spot_size,
+        alpha=alpha
+    )
+    ax_sc.set_aspect('equal')
+    ax_sc.set_title(f"{gene1} :: {gene2}")
+
+    # axis display options
+    if not show_xcoords:
+        ax_sc.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+    if not show_ycoords:
+        ax_sc.tick_params(axis='y', which='both', left=False, right=False, labelleft=False)
+    if not show_bbox:
+        for spine in ax_sc.spines.values():
+            spine.set_visible(False)
+
+    # legend/colorbar
+    if show_legend:
+        lut_img = C  # shape (n,n,3)
+        ax_cb.imshow(lut_img, origin='lower', extent=[0, 1, 0, 1])
+        # ax_cb.set_xlabel(f"{gene1}\nlow → high")
+        # ax_cb.set_ylabel(f"{gene2}\nlow → high")
+        ax_cb.set_xlabel(f"{gene1}")
+        ax_cb.set_ylabel(f"{gene2}")
+        ax_cb.set_xticks([0, 1]); ax_cb.set_yticks([0, 1])
+        ax_cb.set_aspect('equal')
+    else:
+        ax_cb.axis('off')
+
+    plt.show()
+
+
+def embed_bivariate_multi(
+    adata: AnnData,
+    genes1: Sequence[str],
+    genes2: Sequence[str],
+    cmap: ListedColormap = None,
+    spot_size: float = 2,
+    alpha: float = 0.9,
+    spatial_key: str = 'X_spatial',
+    log_transform: bool = False,
+    clip_percentiles: Tuple[float, float] = (0, 99.5),
+    priority_metric: str = 'sum',
+    n_rows: int = 1,
+    show_xcoords: bool = False,
+    show_ycoords: bool = False,
+    show_bbox: bool = False,
+    legend: bool = True,
+    width_ratio: Tuple[float, float] = (10, 1),
+    panel_size: float = 4.0
+) -> None:
+    """Display multiple bivariate‐gene spatial maps in a grid with shared legend.
+
+    Args:
+        adata: AnnData with coords in adata.obsm[spatial_key] (n_obs,2).
+        genes1: First genes for each panel.
+        genes2: Second genes, same length as genes1.
+        cmap: Bivariate colormap (ListedColormap).
+        spot_size: Marker size.
+        alpha: Marker transparency.
+        spatial_key: Key in adata.obsm for x,y coords.
+        log_transform: If True, log1p each gene.
+        clip_percentiles: Percentile clip bounds.
+        priority_metric: 'sum', 'gene1', or 'gene2'.
+        n_rows: Number of grid rows.
+        show_xcoords: Show x-axis ticks/labels.
+        show_ycoords: Show y-axis ticks/labels.
+        show_bbox: Show axis spines.
+        legend: If True, draw shared legend.
+        width_ratio: Tuple (scatter_region_ratio, legend_region_ratio),
+            controlling relative widths in the GridSpec.
+        panel_size: Size (inches) of each scatter panel (both width and height).
+
+    Raises:
+        ValueError: If genes1/genes2 lengths differ or coords missing.
+    """
+    # Validate input lengths
+    if len(genes1) != len(genes2):
+        raise ValueError("genes1 and genes2 must be the same length.")
+    n_plots = len(genes1)
+    if n_plots == 0:
+        raise ValueError("Must provide at least one gene pair.")
+
+    # Get coordinates
+    coords = adata.obsm.get(spatial_key)
+    if coords is None or coords.ndim != 2 or coords.shape[1] < 2:
+        raise ValueError(f"adata.obsm['{spatial_key}'] must be shape (n_obs,2).")
+    xs, ys = coords[:, 0], coords[:, 1]
+
+    if cmap is None:
+        cmap = make_bivariate_cmap()
+
+    # Prepare colormap LUT
+    m = len(cmap.colors)
+    n = int(math.sqrt(m))
+    C = np.array(cmap.colors).reshape(n, n, 3)
+
+    # Layout geometry
+    n_cols = math.ceil(n_plots / n_rows)
+    w_sc, w_leg = width_ratio
+    fig_width = panel_size * (n_cols * w_sc + (w_leg if legend else 0)) / w_sc
+    fig_height = panel_size * n_rows
+
+    fig = plt.figure(figsize=(fig_width, fig_height))
+    # GridSpec: n_rows x (n_cols + 1 for legend if needed)
+    total_cols = n_cols + (1 if legend else 0)
+    col_ratios = [w_sc] * n_cols + ([w_leg] if legend else [])
+    gs = fig.add_gridspec(n_rows, total_cols, width_ratios=col_ratios, wspace=0.1, hspace=0.1)
+
+    def _get_array(x):
+        return x.toarray().flatten() if hasattr(x, 'toarray') else x.flatten()
+
+    # Plot panels
+    for idx, (g1, g2) in enumerate(zip(genes1, genes2)):
+        row = idx // n_cols
+        col = idx % n_cols
+        ax = fig.add_subplot(gs[row, col])
+
+        # extract & preprocess
+        X1 = _get_array(adata[:, g1].X)
+        X2 = _get_array(adata[:, g2].X)
+        if log_transform:
+            X1 = np.log1p(X1); X2 = np.log1p(X2)
+        lo1, hi1 = np.percentile(X1, clip_percentiles)
+        lo2, hi2 = np.percentile(X2, clip_percentiles)
+        X1 = np.clip(X1, lo1, hi1); X2 = np.clip(X2, lo2, hi2)
+        u = (X1 - lo1)/(hi1 - lo1) if hi1>lo1 else np.zeros_like(X1)
+        v = (X2 - lo2)/(hi2 - lo2) if hi2>lo2 else np.zeros_like(X2)
+
+        # bilinear LUT mapping
+        gu, gv = u*(n-1), v*(n-1)
+        i0, j0 = np.floor(gu).astype(int), np.floor(gv).astype(int)
+        i1, j1 = np.minimum(i0+1, n-1), np.minimum(j0+1, n-1)
+        du, dv = gu-i0, gv-j0
+        wa, wb = (1-du)*(1-dv), du*(1-dv)
+        wc, wd = (1-du)*dv, du*dv
+        c00, c10 = C[j0, i0], C[j0, i1]
+        c01, c11 = C[j1, i0], C[j1, i1]
+        cols = c00*wa[:,None] + c10*wb[:,None] + c01*wc[:,None] + c11*wd[:,None]
+        hexcols = [to_hex(c) for c in cols]
+
+        # draw order
+        if priority_metric == 'sum':
+            pr = u + v
+        elif priority_metric == 'gene1':
+            pr = u
+        elif priority_metric == 'gene2':
+            pr = v
+        else:
+            raise ValueError("priority_metric must be 'sum', 'gene1', or 'gene2'")
+        order = np.argsort(pr)
+
+        ax.scatter(xs[order], ys[order],
+                   c=[hexcols[i] for i in order],
+                   s=spot_size, alpha=alpha)
+        ax.set_aspect('equal')
+        ax.set_title(f"{g1} :: {g2}", pad=4)
+
+        if not show_xcoords:
+            ax.set_xticks([]); ax.set_xticklabels([])
+        if not show_ycoords:
+            ax.set_yticks([]); ax.set_yticklabels([])
+        if not show_bbox:
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+
+    # Turn off unused panels
+    for idx in range(n_plots, n_rows * n_cols):
+        row = idx // n_cols
+        col = idx % n_cols
+        fig.add_subplot(gs[row, col]).axis('off')
+
+    # Shared legend
+    if legend:
+        lg_ax = fig.add_subplot(gs[:, -1])
+        lg_ax.imshow(C, origin='lower', extent=[0, 1, 0, 1])
+        lg_ax.set_xticks([0, 1]); lg_ax.set_yticks([0, 1])
+        lg_ax.set_xlabel("gene1 ↑"); lg_ax.set_ylabel("gene2 ↑")
+        if not show_bbox:
+            for spine in lg_ax.spines.values():
+                spine.set_visible(True)
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+def spatial_contours(
+    adata: AnnData,
+    genes: Union[str, Sequence[str]],
+    spatial_key: str = 'spatial',
+    summary_func: Callable[[np.ndarray], np.ndarray] = np.mean,
+    spot_size: float = 30,
+    alpha: float = 0.8,
+    log_transform: bool = True,
+    clip_percentiles: tuple = (1, 99),
+    cmap: str = 'viridis',
+    contour_kwargs: dict = None,
+    scatter_kwargs: dict = None
+) -> None:
+    """Scatter spatial expression of one or more genes with smooth contour overlay.
+
+    If multiple genes are provided, each is preprocessed (log1p → clip
+    → normalize), then combined per cell via `summary_func` (e.g. mean, sum,
+    max) on the normalized values. A smooth contour of the summarized signal
+    is overlaid onto the spatial scatter.
+
+    Args:
+        adata: AnnData with spatial coordinates in `adata.obsm[spatial_key]`.
+        genes: Single gene name or list of gene names to plot (must be in `adata.var_names`).
+        spatial_key: Key in `.obsm` for an (n_obs, 2) coords array.
+        summary_func: Function to combine multiple normalized gene arrays
+            (takes an (n_obs, n_genes) array, returns length-n_obs array).
+            Defaults to `np.mean`.
+        spot_size: Scatter marker size.
+        alpha: Scatter alpha transparency.
+        log_transform: If True, apply `np.log1p` to raw expression before clipping.
+        clip_percentiles: Tuple `(low_pct, high_pct)` percentiles to clip each gene.
+        cmap: Colormap name for the scatter (e.g. 'viridis').
+        contour_kwargs: Dict of parameters for smoothing & contouring:
+            - levels: int or list of levels (default 6)
+            - grid_res: int grid resolution (default 200)
+            - smooth_sigma: float Gaussian blur sigma (default 2)
+            - contour_kwargs: dict of line style kwargs (default {'colors':'k','linewidths':1})
+        scatter_kwargs: Extra kwargs passed to `ax.scatter`.
+
+    Raises:
+        ValueError: If any gene is missing or spatial coords are malformed.
+    """
+    # ensure genes is list
+    gene_list = [genes] if isinstance(genes, str) else list(genes)
+    for g in gene_list:
+        if g not in adata.var_names:
+            raise ValueError(f"Gene '{g}' not found in adata.var_names.")
+
+    # helper to extract numpy
+    def _get_array(x):
+        return x.toarray().flatten() if hasattr(x, 'toarray') else x.flatten()
+
+    # preprocess each gene: extract, log1p, clip, normalize to [0,1]
+    normed = []
+    for g in gene_list:
+        vals = _get_array(adata[:, g].X)
+        if log_transform:
+            vals = np.log1p(vals)
+        lo, hi = np.percentile(vals, clip_percentiles)
+        vals = np.clip(vals, lo, hi)
+        normed.append((vals - lo) / (hi - lo) if hi > lo else np.zeros_like(vals))
+    # stack into (n_obs, n_genes)
+    M = np.column_stack(normed)
+    # summarize across genes
+    summary = summary_func(M, axis=1)
+
+    # fetch spatial coords
+    coords = adata.obsm.get(spatial_key)
+    if coords is None or coords.shape[1] < 2:
+        raise ValueError(f"adata.obsm['{spatial_key}'] must be an (n_obs, 2) array.")
+    x, y = coords[:, 0], coords[:, 1]
+
+    # scatter
+    fig, ax = plt.subplots(figsize=(6, 6))
+    sc_kw = {"c": summary, "cmap": cmap, "s": spot_size, "alpha": alpha}
+    if scatter_kwargs:
+        sc_kw.update(scatter_kwargs)
+    sc = ax.scatter(x, y, **sc_kw)
+    ax.set_aspect('equal')
+    title = (
+        gene_list[0] if len(gene_list) == 1
+        else f"{len(gene_list)} genes ({summary_func.__name__})"
+    )
+    ax.set_title(f"Spatial expression: {title}")
+    ax.set_xlabel('x'); ax.set_ylabel('y')
+    fig.colorbar(sc, ax=ax, label="summarized (normalized)")
+
+    # smooth + contour
+    # default contour params
+    ck = {
+        "levels": 6,
+        "grid_res": 200,
+        "smooth_sigma": 2,
+        "contour_kwargs": {"colors": "k", "linewidths": 1}
+    }
+    if contour_kwargs:
+        ck.update(contour_kwargs)
+    _smooth_contour(
+        x, y, summary,
+        levels=ck["levels"],
+        grid_res=ck["grid_res"],
+        smooth_sigma=ck["smooth_sigma"],
+        contour_kwargs=ck["contour_kwargs"]
+    )
+    plt.tight_layout()
+    plt.show()

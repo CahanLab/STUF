@@ -1,0 +1,6 @@
+inProgressFunctions/
+.DS_Store
+build/ 
+dist/
+pySingleCellNet.egg-info/
+__pycache__/
