@@ -2,10 +2,11 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import anndata as ad
+#import pySingleCellNet as cn
 from scipy import sparse
 import igraph as ig
 from typing import Dict, List, Union
-from .adataTools import find_elbow
+#from .adataTools import find_elbow
 from anndata import AnnData
 
 def build_gene_knn_graph(
@@ -208,8 +209,6 @@ def query_gene_neighbors(
         return [gene_index[j] for j in topk]
 
 
-
-
 def score_gene_modules(
     adata,
     gene_dict: dict,
@@ -233,33 +232,23 @@ def score_gene_modules(
     adata.obsm[obsm_name] = scores_df
 
 
-
 def find_knn_modules(
     adata,
-    mean_cluster: bool = True,
-    groupby: str = 'leiden',
-    mask_var: str = None,
-    knn: int = 5,
+    adjacency,
     leiden_resolution: float = 0.5,
     prefix: str = 'gmod_',
     metric='euclidean'
 ):
     """
-    Finds gene modules by building a kNN graph on raw (or aggregated) expression profiles 
-    and clustering with Leiden. Results are written to adata.uns['knn_modules'] in-place.
+    Finds gene modules based on required passed adjacency matrix produced with build_gene_knn_graph 
+    clustering with Leiden. Results are written to adata.uns['knn_modules'] in-place.
 
     Parameters:
     -----------
     adata
         AnnData object to process.
-    mean_cluster
-        If True, compute the mean expression per cluster defined in `groupby`, otherwise use all cells.
-    groupby
-        Column in adata.obs to use for clustering when mean_cluster is True.
-    mask_var
-        Column name in adata.var used to select a subset of genes (boolean mask). If None, use all genes.
-    knn
-        Number of neighbors to use in the kNN graph.
+    adjacency
+        Adjacency matrix
     leiden_resolution
         Resolution parameter for the Leiden clustering.
     prefix
@@ -271,35 +260,26 @@ def find_knn_modules(
     # 1) Work on a copy so we don’t modify the user’s adata.X before we’re ready
     adata_subset = adata.copy()
 
-    # 2) If mask_var is provided, subset on that boolean column in adata.var
-    if mask_var is not None:
-        if mask_var not in adata_subset.var.columns:
-            raise ValueError(f"Column '{mask_var}' not found in adata.var.")
-        gene_mask = adata_subset.var[mask_var].astype(bool)
-        selected = adata_subset.var.index[gene_mask].tolist()
-        if len(selected) == 0:
-            raise ValueError(f"No genes found where var['{mask_var}'] is True.")
-        adata_subset = adata_subset[:, selected].copy()
+    # 2) subset genes
+    # I need to come back to this to get the genes from the {key}_connectivities matrix
+    # selected = adata_subset.var.index[gene_mask].tolist()
+    # if len(selected) == 0:
+    #     raise ValueError(f"No genes found where var['{mask_var}'] is True.")
+    # adata_subset = adata_subset[:, selected].copy()
 
-    # 3) If mean_cluster=True, aggregate cells by cluster and replace X with the mean 
-    if mean_cluster:
-        if groupby not in adata_subset.obs.columns:
-            raise ValueError(f"Column '{groupby}' not found in adata.obs.")
-        adata_subset = sc.get.aggregate(adata_subset, by=groupby, func='mean')
-        adata_subset.X = adata_subset.layers['mean']
-
-    # 4) Transpose so that genes (or cluster‐means) become observations
+    # 3) Transpose so that genes (or cluster‐means) become observations
     adata_transposed = adata_subset.T.copy()
 
     # 5) If the metric is 'correlation' and X is sparse, convert to dense
+# bnot sure if needed
     if metric == 'correlation' and sparse.issparse(adata_transposed.X):
         adata_transposed.X = adata_transposed.X.toarray()
 
     # 6) Build the kNN graph directly on .X (no PCA)
-    sc.pp.neighbors(adata_transposed, n_neighbors=knn, metric=metric, n_pcs=0)
+    ### sc.pp.neighbors(adata_transposed, n_neighbors=knn, metric=metric, n_pcs=0)
 
     # 7) Leiden clustering on that graph
-    sc.tl.leiden(adata_transposed, resolution=leiden_resolution)
+    sc.tl.leiden(adata_transposed, adjacency = adjacency, resolution=leiden_resolution)
 
     # 8) Group by Leiden label to collect modules
     clusters = (
@@ -312,6 +292,87 @@ def find_knn_modules(
 
     # 9) Write modules back to the original AnnData (in-place)
     adata.uns['knn_modules'] = modules
+
+
+
+# def find_knn_modules(
+#     adata,
+#     mean_cluster: bool = True,
+#     groupby: str = 'leiden',
+#     mask_var: str = None,
+#     knn: int = 5,
+#     leiden_resolution: float = 0.5,
+#     prefix: str = 'gmod_',
+#     metric='euclidean'
+# ):
+#     """
+#     Finds gene modules by building a kNN graph on raw (or aggregated) expression profiles 
+#     and clustering with Leiden. Results are written to adata.uns['knn_modules'] in-place.
+
+#     Parameters:
+#     -----------
+#     adata
+#         AnnData object to process.
+#     mean_cluster
+#         If True, compute the mean expression per cluster defined in `groupby`, otherwise use all cells.
+#     groupby
+#         Column in adata.obs to use for clustering when mean_cluster is True.
+#     mask_var
+#         Column name in adata.var used to select a subset of genes (boolean mask). If None, use all genes.
+#     knn
+#         Number of neighbors to use in the kNN graph.
+#     leiden_resolution
+#         Resolution parameter for the Leiden clustering.
+#     prefix
+#         Prefix to add to each module name.
+#     metric
+#         Distance metric for kNN computation (e.g. 'euclidean', 'manhattan', 'correlation', etc.).
+#         If metric=='correlation', we force a dense array when the data are sparse.
+#     """
+#     # 1) Work on a copy so we don’t modify the user’s adata.X before we’re ready
+#     adata_subset = adata.copy()
+
+#     # 2) If mask_var is provided, subset on that boolean column in adata.var
+#     if mask_var is not None:
+#         if mask_var not in adata_subset.var.columns:
+#             raise ValueError(f"Column '{mask_var}' not found in adata.var.")
+#         gene_mask = adata_subset.var[mask_var].astype(bool)
+#         selected = adata_subset.var.index[gene_mask].tolist()
+#         if len(selected) == 0:
+#             raise ValueError(f"No genes found where var['{mask_var}'] is True.")
+#         adata_subset = adata_subset[:, selected].copy()
+
+#     # 3) If mean_cluster=True, aggregate cells by cluster and replace X with the mean 
+#     if mean_cluster:
+#         if groupby not in adata_subset.obs.columns:
+#             raise ValueError(f"Column '{groupby}' not found in adata.obs.")
+#         adata_subset = sc.get.aggregate(adata_subset, by=groupby, func='mean')
+#         adata_subset.X = adata_subset.layers['mean']
+
+#     # 4) Transpose so that genes (or cluster‐means) become observations
+#     adata_transposed = adata_subset.T.copy()
+
+#     # 5) If the metric is 'correlation' and X is sparse, convert to dense
+#     if metric == 'correlation' and sparse.issparse(adata_transposed.X):
+#         adata_transposed.X = adata_transposed.X.toarray()
+
+#     # 6) Build the kNN graph directly on .X (no PCA)
+#     sc.pp.neighbors(adata_transposed, n_neighbors=knn, metric=metric, n_pcs=0)
+
+#     # 7) Leiden clustering on that graph
+#     sc.tl.leiden(adata_transposed, resolution=leiden_resolution)
+
+#     # 8) Group by Leiden label to collect modules
+#     clusters = (
+#         adata_transposed.obs
+#         .groupby('leiden', observed=True)['leiden']
+#         .apply(lambda ser: ser.index.tolist())
+#         .to_dict()
+#     )
+#     modules = {f"{prefix}{cluster_id}": gene_list for cluster_id, gene_list in clusters.items()}
+
+#     # 9) Write modules back to the original AnnData (in-place)
+#     adata.uns['knn_modules'] = modules
 
 
 

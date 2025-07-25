@@ -1,23 +1,26 @@
-
-from .categorize import (
-    paga_connectivities_to_igraph,
-    graph_from_nodes_and_edges
+from .gene import(
+    build_gene_knn_graph,
+    query_gene_neighbors,
+    score_gene_modules,
+    find_knn_modules,
 )
 
-from .comparison import (
-    gsea_on_deg,
-    collect_gsea_results_from_dict,
-    convert_diffExp_to_dict,
-    deg
+from .contour import (
+    contourize,
+    compute_contour_profile_obs,
+    compute_contour_profiles,
+    annotate_axis_association,
 )
 
 # API
 __all__ = [
-    "paga_connectivities_to_igraph",
-    "graph_from_nodes_and_edges",
-    "gsea_on_deg",
-    "collect_gsea_results_from_dict",
-    "convert_diffExp_to_dict",
-    "deg"
+    "build_gene_knn_graph",
+    "query_gene_neighbors",
+    "score_gene_modules",
+    "find_knn_modules,"
+    "contourize",
+    "compute_contour_profile_obs",
+    "compute_contour_profiles",
+    "annotate_axis_association",
 ]
 

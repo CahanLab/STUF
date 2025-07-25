@@ -6,20 +6,69 @@ from scipy.ndimage import gaussian_filter
 from matplotlib.colors import to_hex
 import matplotlib.pyplot as plt
 import contextlib
+import warnings
 
-@contextlib.contextmanager
-def _temp_plt_axes(fig, ax_sc, ax_cb):
-    """Monkey‐patch plt.subplots/plt.show to draw into (ax_sc,ax_cb) only."""
-    orig_subplots, orig_show = plt.subplots, plt.show
-    # fake subplots to return our single row of axes
-    plt.subplots = lambda *args, **kwargs: (fig, (ax_sc, ax_cb))
-    # disable pop‐ups inside spatial_two_genes
-    plt.show = lambda *args, **kwargs: None
-    try:
-        yield
-    finally:
-        # always restore, even on error
-        plt.subplots, plt.show = orig_subplots, orig_show
+def annotate_centroids(
+    ax,
+    adata,
+    category_key: str,
+    embedding_key: str = 'X_spatial',
+    text_kwargs: dict = None
+):
+    """
+    Add one label per category at its centroid on an existing Axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Pre-existing axes (e.g. from embed_categorical()).
+    adata : AnnData
+        Your AnnData with 2D coords in adata.obsm[embedding_key].
+    category_key : str
+        Column in adata.obs with the category labels.
+    embedding_key : str, optional
+        Key in adata.obsm for the (n_obs,2) coords. Default 'X_spatial'.
+    text_kwargs : dict, optional
+        Forwarded to ax.text (e.g. fontsize, color, bbox).
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The same axes, with centroids annotated.
+    """
+    # default text styling for centroid labels
+    defaults = {
+        'fontsize': 8,
+        'color': 'black',
+        'ha': 'center',
+        'va': 'center',
+        'bbox': dict(facecolor='white', alpha=0.6, pad=1, edgecolor='none')
+    }
+    if text_kwargs:
+        defaults.update(text_kwargs)
+
+    # extract coordinates
+    coords = adata.obsm.get(embedding_key)
+    if coords is None or coords.ndim != 2 or coords.shape[1] < 2:
+        raise ValueError(f"adata.obsm['{embedding_key}'] must be an (n_obs,2) array.")
+    x, y = coords[:, 0], coords[:, 1]
+
+    # extract labels and categories
+    if category_key not in adata.obs:
+        raise ValueError(f"Column '{category_key}' not in adata.obs")
+    labels = adata.obs[category_key].astype(str).values
+    cats = np.unique(labels)
+
+    # place one text per category at the mean position
+    for cat in cats:
+        mask = labels == cat
+        if not np.any(mask):
+            continue
+        xc, yc = x[mask].mean(), y[mask].mean()
+        ax.text(xc, yc, cat, **defaults)
+
+    return ax
+
 
 
 def _smooth_contour(
