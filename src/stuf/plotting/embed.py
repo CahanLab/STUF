@@ -3,23 +3,20 @@ import matplotlib.pyplot as plt
 from anndata import AnnData
 from .helpers import _smooth_contour, make_bivariate_cmap, annotate_centroids
 from matplotlib.colors import to_hex, ListedColormap
-# from scipy.interpolate import griddata
-# from scipy.ndimage import gaussian_filter
-from typing import Union, Sequence, Callable, Optional, Dict, Tuple, List
+from typing import Union, Sequence, Callable, Optional, Dict, Tuple, List, Any
 import math
 import warnings
-from ..config import DEFAULTS_SCATTER, DEFAULTS_CBAR, DEFAULTS_LEGEND
+from ..config import DEFAULTS_SCATTER, DEFAULTS_CBAR, DEFAULTS_LEGEND, BIMAP_YELLOW
 import seaborn as sns
 from matplotlib.patches import Patch
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
 
 def embed_bivariate_genes(
     adata: AnnData,
     genes1: List[str],
     genes2: List[str],
-    cmap: ListedColormap,
-    spot_size: float = 2,
-    alpha: float = 0.9,
+    cmap: ListedColormap = BIMAP_YELLOW,
     embedding_key: str = 'X_spatial',
     log_transform: bool = False,
     clip_percentiles: Tuple[float, float] = (0, 100),
@@ -30,193 +27,143 @@ def embed_bivariate_genes(
     show_bbox: bool = False,
     show_legend: bool = True,
     width_ratios: Tuple[float, float] = (10, 1),
-    cbar_kwargs: dict = None,
-    module1_label: str = None,
-    module2_label: str = None,
+    scatter_kwargs: Optional[Dict[str, Any]] = None,
+    cbar_kwargs: Optional[Dict[str, Any]] = None,
     cbar_fontsize: str = 'small',
-    ax: plt.Axes = None
+    list_genes: bool = True,
+    ax: Optional[plt.Axes] = None
 ) -> plt.Axes:
     """
     Plot two gene lists on a 2D embedding using a bivariate colormap.
 
-    - No title is drawn.
-    - Colorbar inset parameters can be passed via cbar_kwargs.
-    - Colorbar axes labels default to '<first gene> module' but can be overridden.
-    - Tick labels on the colorbar use `cbar_fontsize`.
-    - Small-font text below the scatter lists each module's genes.
-
-    cbar_kwargs keys:
-      - width: str or float, passed to inset_axes
-      - height: str or float, passed to inset_axes
-      - loc: str or int, legend location passed to inset_axes
-      - borderpad: float, padding around inset
+    Parameters
+    ----------
+    adata
+        AnnData with spatial coords in `adata.obsm[embedding_key]`.
+    genes1, genes2
+        Lists of gene names for the two modules.
+    ...
     """
-    # 0) determine module labels
-    if module1_label is None:
-        module1_label = f"{genes1[0]} module"
-    if module2_label is None:
-        module2_label = f"{genes2[0]} module"
+    # Determine labels based on number of genes
+    module1_label = genes1[0] if len(genes1) == 1 else "List 1"
+    module2_label = genes2[0] if len(genes2) == 1 else "List 2"
 
-    # 1) validate genes
-    missing1 = [g for g in genes1 if g not in adata.var_names]
-    missing2 = [g for g in genes2 if g not in adata.var_names]
-    if missing1:
-        raise ValueError(f"genes1 contains unknown genes: {missing1}")
-    if missing2:
-        raise ValueError(f"genes2 contains unknown genes: {missing2}")
+    # Validate gene presence
+    for g in genes1 + genes2:
+        if g not in adata.var_names:
+            raise ValueError(f"Gene '{g}' not in adata.var_names")
 
-    # 2) helper to extract array
-    def _get_array(x):
-        return x.toarray().flatten() if hasattr(x, 'toarray') else x.flatten()
+    # Helper to flatten X
+    def _arr(x): return x.toarray().ravel() if hasattr(x, 'toarray') else x.ravel()
 
-    # 3) summarize each gene list
+    # Summarize a list
     def summarize(genelist):
-        normed = []
+        arrs = []
         for g in genelist:
-            vals = _get_array(adata[:, g].X)
+            v = _arr(adata[:, g].X)
             if log_transform:
-                vals = np.log1p(vals)
-            lo, hi = np.percentile(vals, clip_percentiles)
-            clipped = np.clip(vals, lo, hi)
-            if hi > lo:
-                normed_vals = (clipped - lo) / (hi - lo)
-            else:
-                normed_vals = np.zeros_like(clipped)
-            normed.append(normed_vals)
-        M = np.column_stack(normed)
+                v = np.log1p(v)
+            lo, hi = np.percentile(v, clip_percentiles)
+            v = np.clip(v, lo, hi)
+            arrs.append((v - lo) / (hi - lo) if hi > lo else np.zeros_like(v))
+        M = np.vstack(arrs).T
         return agg_func(M, axis=1)
 
-    u = summarize(genes1)
-    v = summarize(genes2)
+    u, v = summarize(genes1), summarize(genes2)
 
-    # 4) build LUT
+    # Build LUT
     m = len(cmap.colors)
     n = int(np.sqrt(m))
     C = np.array(cmap.colors).reshape(n, n, 3)
 
-    # 5) bilinear interpolation
-    gu, gv = u * (n - 1), v * (n - 1)
+    # Bilinear interp into LUT
+    gu, gv = u*(n-1), v*(n-1)
     i0, j0 = np.floor(gu).astype(int), np.floor(gv).astype(int)
-    i1 = np.minimum(i0 + 1, n - 1); j1 = np.minimum(j0 + 1, n - 1)
-    du, dv = gu - i0, gv - j0
-    wa, wb = (1 - du) * (1 - dv), du * (1 - dv)
-    wc, wd = (1 - du) * dv, du * dv
-    c00 = C[j0, i0]; c10 = C[j0, i1]
-    c01 = C[j1, i0]; c11 = C[j1, i1]
-    cols_rgb = c00 * wa[:, None] + c10 * wb[:, None] + c01 * wc[:, None] + c11 * wd[:, None]
-    hex_colors = [to_hex(c) for c in cols_rgb]
+    i1, j1 = np.minimum(i0+1, n-1), np.minimum(j0+1, n-1)
+    du, dv = gu-i0, gv-j0
+    wa, wb = (1-du)*(1-dv), du*(1-dv)
+    wc, wd = (1-du)*dv, du*dv
+    c00, c10 = C[j0, i0], C[j0, i1]
+    c01, c11 = C[j1, i0], C[j1, i1]
+    cols = c00*wa[:,None] + c10*wb[:,None] + c01*wc[:,None] + c11*wd[:,None]
+    hexcols = [to_hex(c) for c in cols]
 
-    # 6) determine draw order
-    if priority_metric == 'sum':
-        priority = u + v
-    elif priority_metric == 'list1':
-        priority = u
-    elif priority_metric == 'list2':
-        priority = v
-    else:
-        raise ValueError("priority_metric must be 'sum', 'list1', or 'list2'")
-    order = np.argsort(priority)
+    # Determine draw priority
+    if priority_metric == 'sum': pr = u + v
+    elif priority_metric == 'list1': pr = u
+    elif priority_metric == 'list2': pr = v
+    else: raise ValueError("priority_metric must be 'sum','list1','list2'")
+    order = np.argsort(pr)
 
-    # 7) get & sort coords
+    # Coordinates
     coords = adata.obsm.get(embedding_key)
-    if coords is None or coords.shape[1] < 2:
-        raise ValueError(f"adata.obsm['{embedding_key}'] must be an (n_obs,2) array")
-    coords_sorted = coords[order]
-    cols_sorted = [hex_colors[i] for i in order]
+    if coords is None or coords.shape[1] != 2:
+        raise ValueError(f"adata.obsm['{embedding_key}'] must be (n_obs,2)")
+    xy = coords[order]
 
-    # 8) setup axes
+    # Axes setup
     if ax is None:
-        fig, (ax_sc, ax_cb) = plt.subplots(
-            1, 2,
-            figsize=(8, 4),
+        fig, (ax, ax_cb) = plt.subplots(
+            1, 2, figsize=(8, 4),
             gridspec_kw={'width_ratios': width_ratios, 'wspace': 0.3}
         )
     else:
-        ax_sc = ax
-        fig = ax.figure
         ax_cb = None
+        fig = ax.figure
 
-    # 9) scatter
-    ax_sc.scatter(
-        coords_sorted[:, 0], coords_sorted[:, 1],
-        c=cols_sorted, s=spot_size, alpha=alpha
-    )
-    ax_sc.set_aspect('equal')
+    # Scatter kwargs
+    skw = DEFAULTS_SCATTER.copy()
+    if scatter_kwargs:
+        skw.update(scatter_kwargs)
 
-    # 10) axis styling
-    if not show_xcoords:
-        ax_sc.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
-    if not show_ycoords:
-        ax_sc.tick_params(axis='y', which='both', left=False, right=False, labelleft=False)
+    # Plot scatter
+    ax.scatter(xy[:,0], xy[:,1], c=[hexcols[i] for i in order], **skw)
+    ax.set_aspect('equal')
+    if not show_xcoords: ax.tick_params(bottom=False, labelbottom=False)
+    if not show_ycoords: ax.tick_params(left=False, labelleft=False)
     if not show_bbox:
-        for sp in ax_sc.spines.values():
-            sp.set_visible(False)
+        for sp in ax.spines.values(): sp.set_visible(False)
 
-    # 11) legend / colorbar
+    # Colorbar
     if show_legend:
-        # default inset settings
-        defaults = {'width': '5%', 'height': '50%', 'loc': 'upper right', 'borderpad': 1}
-        if cbar_kwargs:
-            defaults.update(cbar_kwargs)
-
+        defaults = {'width':'5%','height':'50%','loc':'upper right','borderpad':1}
+        if cbar_kwargs: defaults.update(cbar_kwargs)
         if ax_cb is not None:
-            ax_cb.imshow(C, origin='lower', extent=[0, 1, 0, 1])
+            ax_cb.imshow(C, origin='lower', extent=[0,1,0,1])
             ax_cb.set_xlabel(module1_label, fontsize=cbar_fontsize)
             ax_cb.set_ylabel(module2_label, fontsize=cbar_fontsize)
             ax_cb.tick_params(labelsize=cbar_fontsize)
-            ax_cb.set_xticks([0, 1]); ax_cb.set_yticks([0, 1])
+            ax_cb.set_xticks([0,1]); ax_cb.set_yticks([0,1])
             ax_cb.set_aspect('equal')
         else:
-            cb_ax = inset_axes(
-                ax_sc,
-                width=defaults['width'],
-                height=defaults['height'],
-                loc=defaults['loc'],
-                borderpad=defaults['borderpad']
-            )
-            cb_ax.imshow(C, origin='lower', extent=[0, 1, 0, 1])
-            cb_ax.set_xlabel(module1_label, fontsize=cbar_fontsize)
-            cb_ax.set_ylabel(module2_label, fontsize=cbar_fontsize)
-            cb_ax.tick_params(labelsize=cbar_fontsize)
-            cb_ax.set_xticks([0, 1]); cb_ax.set_yticks([0, 1])
-            cb_ax.set_aspect('equal')
-            cb_ax.patch.set_alpha(0)
+            cbax = inset_axes(ax, **defaults)
+            cbax.imshow(C, origin='lower', extent=[0,1,0,1])
+            cbax.set_xlabel(module1_label, fontsize=cbar_fontsize)
+            cbax.set_ylabel(module2_label, fontsize=cbar_fontsize)
+            cbax.tick_params(labelsize=cbar_fontsize)
+            cbax.set_xticks([0,1]); cbax.set_yticks([0,1])
+            cbax.set_aspect('equal')
+            cbax.patch.set_alpha(0)
 
-    # 12) gene list text below
-    fig.subplots_adjust(bottom=0.25)
-    y_off = 0.05
-    multi = (
-        f"{module1_label}: " + ", ".join(genes1) + "\n"
-        f"{module2_label}: " + ", ".join(genes2)
-    )
-    ax_sc.text(
-        0.5, -y_off,
-        multi,
-        transform=ax_sc.transAxes,
-        ha='center', va='top',
-        fontsize='small',
-        linespacing=1.25   
-    )
+    # List genes below plot
+    if list_genes:
+        fig.subplots_adjust(bottom=0.25)
+        def _fmt(genelist):
+            x = genelist[:3]
+            return ', '.join(x) + ('...' if len(genelist) > 3 else '')
+        txt = (
+            f"{module1_label}: {_fmt(genes1)}\n"
+            f"{module2_label}: {_fmt(genes2)}"
+        )
+        ax.text(
+            0.5, -0.05,
+            txt,
+            transform=ax.transAxes,
+            ha='center', va='top',
+            fontsize='small', linespacing=1.2
+        )
 
-    # fig.subplots_adjust(bottom=0.25)
-    # y_off = 0.05
-    # ax_sc.text(
-    #     0.5, -y_off,
-    #     f"{module1_label}: " + ', '.join(genes1),
-    #     transform=ax_sc.transAxes,
-    #     ha='center', va='top', fontsize='small'
-    # )
-    # ax_sc.text(
-    #     0.5, -2 * y_off,
-    #     f"{module2_label}: " + ', '.join(genes2),
-    #     transform=ax_sc.transAxes,
-    #     ha='center', va='top', fontsize='small'
-    # )
-
-    return ax_sc
-
-
-
+    return ax
 
 
 
@@ -346,14 +293,17 @@ def embed_geneset(
         coords_ordered[:, 1],
         c=summary_ordered,
         **default_scat,
+#        **scatter_kwargs
     )
     
     if show_colorbar:
+        # cb = plt.colorbar(sc, ax=ax, **default_cbar)
         cb = plt.colorbar(sc, ax=ax, **default_cbar)
         cb.set_label(colorbar_label)    
 
 #     ax.set_xticks([]); ax.set_yticks([])
-    ax.set_aspect("equal", adjustable="box")
+    # ax.set_aspect("equal", adjustable="box")
+    ax.set_aspect("equal")
     ax.axis('off')
 
     if show_gene_names:
@@ -368,7 +318,107 @@ def embed_geneset(
 
     return ax
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+from matplotlib.patches import Patch
+
 def embed_categorical(
+    adata,
+    category_key: str,
+    embedding_key: str = 'X_spatial',
+    palette: dict = None,
+    ax=None,
+    scatter_kwargs: dict = None,
+    legend_kwargs: dict = None,
+    show_legend: bool = True
+):
+    """
+    Layer‐1: draw every spot colored by adata.obs[category_key].
+    If adata.uns['<category_key>_colors'] exists and matches the number
+    of categories, use it; otherwise generate a new seaborn palette.
+
+    show_legend : bool
+        If False, suppress the legend.
+    """
+    # 0) sanity checks
+    if category_key not in adata.obs:
+        raise ValueError(f"Column '{category_key}' not in adata.obs")
+    coords = adata.obsm.get(embedding_key)
+    if coords is None or coords.ndim != 2 or coords.shape[1] < 2:
+        raise ValueError(f"adata.obsm['{embedding_key}'] must be an (n_obs,2) array.")
+    x, y = coords[:,0], coords[:,1]
+
+    labels = adata.obs[category_key].astype(str)
+    cats   = labels.unique().tolist()
+
+    # 1) build or validate palette
+    if palette is None:
+        uns_key = f"{category_key}_colors"
+        if (
+            uns_key in adata.uns
+            and isinstance(adata.uns[uns_key], (list, tuple))
+            and len(adata.uns[uns_key]) >= len(cats)
+        ):
+            colors = adata.uns[uns_key][:len(cats)]
+        else:
+            if uns_key in adata.uns and len(adata.uns[uns_key]) < len(cats):
+                warnings.warn(
+                    f"{uns_key} in adata.uns has length "
+                    f"{len(adata.uns[uns_key])}, but needs {len(cats)}; regenerating."
+                )
+            colors = sns.color_palette(n_colors=len(cats))
+        color_map = dict(zip(cats, colors))
+    else:
+        missing = set(cats) - set(palette.keys())
+        if missing:
+            raise ValueError(f"palette dict is missing colors for categories: {missing}")
+        color_map = palette
+
+    color_list = [color_map[l] for l in labels]
+
+    # 2) axes
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    # 3) scatter
+    defaults = {
+        's': 30,
+        'alpha': 0.6,
+        'edgecolors': 'none',
+        'cmap': None
+    }
+    if scatter_kwargs:
+        defaults.update(scatter_kwargs)
+    sc = ax.scatter(
+        x, y,
+        c=color_list,
+        **defaults
+    )
+
+    # 4) legend
+    if show_legend:
+        patches = [
+            Patch(facecolor=color_map[cat], label=cat, alpha=defaults.get('alpha', 1.0), edgecolor='none')
+            for cat in cats
+        ]
+        defaults_legend = {
+            'title': category_key,
+            'loc': 'upper left',
+            'bbox_to_anchor': (1.02, 1),
+            'ncol': 1,
+            'fontsize': 'small'
+        }
+        if legend_kwargs:
+            defaults_legend.update(legend_kwargs)
+        ax.legend(handles=patches, **defaults_legend)
+
+    ax.set_aspect('equal')
+    ax.axis('off')
+    return ax
+
+
+def old_embed_categorical(
     adata,
     category_key: str,
     embedding_key: str = 'X_spatial',
@@ -519,37 +569,45 @@ def scatter_genes_oneper(
     spot_size: float = 2,
     alpha: float = 0.9,
     clip_percentiles: tuple = (0, 99.5),
-    log_transform: bool = True,
+    log_transform: bool = False,
     cmap: Union[str, plt.Colormap] = 'Reds',
     figsize: Optional[tuple] = None,
     panel_width: float = 4.0,
-    n_rows: int = 1
-) -> None:
-    """Plot expression of multiple genes on a 2D embedding arranged in a grid.
+    n_rows: int = 1,
+    axes: Optional[Sequence[plt.Axes]] = None
+) -> Sequence[plt.Axes]:
+    """
+    Plot expression of multiple genes on a 2D embedding arranged in a grid.
 
     Each gene is optionally log-transformed, percentile-clipped, and rescaled to [0,1].
     Cells are plotted on the embedding, colored by expression, with highest values
     drawn on top. A single colorbar is placed to the right of the grid.
-    If `figsize` is None, each panel has width `panel_width` and height
-    proportional to the embedding's aspect ratio; total figure dims reflect
-    `n_rows` and computed columns.
 
-    Args:
-        adata: AnnData containing the embedding in `adata.obsm[embedding_key]`.
-        embedding_key: Key in `.obsm` for an (n_obs, 2) coordinate array.
-        genes: List of gene names to plot (must be in `adata.var_names`).
-        spot_size: Marker size for scatter plots. Default 2.
-        alpha: Transparency for markers. Default 0.9.
-        clip_percentiles: (low_pct, high_pct) to clip expression before rescaling.
-        log_transform: If True, apply `np.log1p` to raw expression.
-        cmap: Colormap or name for all plots.
-        figsize: (width, height) of entire figure. If None, computed from
-            `panel_width`, `n_rows`, and embedding aspect ratio.
-        panel_width: Width (in inches) of each panel when `figsize` is None.
-        n_rows: Number of rows in the grid. Default 1.
+    Parameters
+    ----------
+    adata
+        AnnData containing the embedding in `.obsm[embedding_key]`.
+    genes
+        List of gene names to plot (must be in `adata.var_names`).
+    embedding_key
+        Key in `.obsm` for an (n_obs, 2) coordinate array.
+    spot_size, alpha, clip_percentiles, log_transform, cmap
+        Scatter and normalization parameters.
+    figsize
+        (width, height) of entire figure. If None, computed from
+        `panel_width`, `n_rows`, and embedding aspect ratio.
+    panel_width
+        Width (in inches) of each panel when `figsize` is None.
+    n_rows
+        Number of rows in the grid. Default 1.
+    axes
+        Optional sequence of Axes objects matching grid shape; if provided,
+        the function will plot into these axes instead of creating new ones.
 
-    Raises:
-        ValueError: If embedding is missing/malformed or genes not found.
+    Returns
+    -------
+    axes_flat
+        List of Axes (flattened) used for each gene panel.
     """
     # Helper to extract array
     def _get_array(x):
@@ -562,21 +620,34 @@ def scatter_genes_oneper(
 
     n_genes = len(genes)
     cols = math.ceil(n_genes / n_rows)
+
     # Compute figsize if not provided
-    if figsize is None:
+    if figsize is None and axes is None:
         x_range = x_vals.max() - x_vals.min()
         y_range = y_vals.max() - y_vals.min()
         aspect = x_range / y_range if y_range > 0 else 1.0
         panel_height = panel_width / aspect
         fig_width = panel_width * cols
         fig_height = panel_height * n_rows
-    else:
+    elif figsize is not None and axes is None:
         fig_width, fig_height = figsize
+    
+    # Create or use existing axes grid
+    if axes is None:
+        fig, ax_grid = plt.subplots(
+            n_rows,
+            cols,
+            figsize=(fig_width, fig_height),
+            squeeze=False
+        )
+    else:
+        # assume axes is sequence of length n_rows*cols
+        ax_grid = np.array(axes).reshape(n_rows, cols)
+        fig = ax_grid.flatten()[0].figure
 
-    fig, axes = plt.subplots(n_rows, cols, figsize=(fig_width, fig_height), squeeze=False)
-    axes_flat = axes.flatten()
-
+    axes_flat = ax_grid.flatten()
     scatters = []
+
     for idx, gene in enumerate(genes):
         ax = axes_flat[idx]
         if gene not in adata.var_names:
@@ -596,26 +667,30 @@ def scatter_genes_oneper(
             cmap=cmap,
             s=spot_size,
             alpha=alpha,
-            vmin=0, vmax=1
+            vmin=0,
+            vmax=1
         )
         ax.set_title(gene)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
         scatters.append(sc)
 
     # Turn off unused axes
-    for j in range(len(genes), n_rows*cols):
+    for j in range(n_genes, n_rows * cols):
         axes_flat[j].axis('off')
 
-    # Adjust subplots to make room for colorbar
-    fig.subplots_adjust(right=0.85)
+    # Only create colorbar/figure layout if we made the fig
+    if axes is None:
+        fig.subplots_adjust(right=0.85)
+        cbar_ax = fig.add_axes([0.88, 0.05, 0.02, 0.9])
+        cb = fig.colorbar(scatters[0], cax=cbar_ax)
+        cb.set_label('normalized expression')
+        plt.tight_layout(rect=[0, 0, 0.85, 1])
+        return axes_flat
+    else:
+        # return existing axes for further manipulation
+        return axes_flat
 
-    # Colorbar axis on the right, spanning full height (15% margin)
-    cbar_ax = fig.add_axes([0.88, 0.05, 0.02, 0.9])
-    cb = fig.colorbar(scatters[0], cax=cbar_ax)
-    cb.set_label('normalized expression')
-
-    plt.tight_layout(rect=[0, 0, 0.85, 1])
-    plt.show()
 
 
 def plot_spatial_two_genes_stack(

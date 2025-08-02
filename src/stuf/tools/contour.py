@@ -10,6 +10,70 @@ from scipy.stats import pearsonr, spearmanr
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter
 
+def annotate_obs_by_threshold(adata, rules):
+    """
+    Annotate cells based on threshold rules for specified obs columns, creating one new column per rule.
+
+    Parameters:
+        adata: AnnData object
+        rules: dict where keys are adata.obs column names, and values are dicts with:
+            'threshold': numeric threshold
+            'annotation': string to assign if value > threshold
+
+    Returns:
+        AnnData object with new annotation columns added to .obs.
+    """
+    for col, params in rules.items():
+        if col not in adata.obs:
+            raise KeyError(f"Column '{col}' not found in adata.obs")
+        thr = params['threshold']
+        ann = params['annotation']
+        new_col = f"{col}_{ann}"
+        values = adata.obs[col].astype(float)
+        adata.obs[new_col] = np.where(values > thr, ann, "")
+    return adata
+
+
+def annotate_obs_by_threshold_combined(adata, rules, new_col="combined_annotation"):
+    """
+    Annotate cells based on threshold rules for specified obs columns, compiling all matching annotations into a single obs column.
+
+    Parameters:
+        adata: AnnData object
+        rules: dict where keys are adata.obs column names, and values are dicts with:
+            'threshold': numeric threshold
+            'annotation': string to assign if value > threshold
+        new_col: name of the new combined annotation column in adata.obs
+
+    Returns:
+        AnnData object with one new combined annotation column added to .obs.
+    """
+    # Prepare a temporary DataFrame to hold individual annotations
+    temp = pd.DataFrame(index=adata.obs.index)
+    for col, params in rules.items():
+        if col not in adata.obs:
+            raise KeyError(f"Column '{col}' not found in adata.obs")
+        thr = params['threshold']
+        ann = params['annotation']
+        values = adata.obs[col].astype(float)
+        # Store the annotation string or empty
+        temp[ann] = np.where(values > thr, ann, "")
+    # Combine non-empty annotations with an underscore
+    combined = temp.apply(lambda row: "_".join([x for x in row if x]), axis=1)
+    # Assign to new obs column
+    adata.obs[new_col] = combined
+    return adata
+
+# Example usage:
+# rules = {
+#     'contour_counts': {'threshold': 0.072, 'annotation': 'high_contour'},
+#     'gene_expression': {'threshold': 5, 'annotation': 'high_expression'}
+# }
+# adata = annotate_obs_by_threshold_combined(adata, rules, new_col='meta_annotation')
+
+
+
+
 def compute_contour_profiles(
     adata: AnnData,
     mask_vars: Optional[Sequence[str]] = None,
@@ -384,8 +448,6 @@ def compute_contour_profile_obs(
     categories = np.unique(np.concatenate(([0.0], thresholds)))
     annotation_cat = pd.Categorical(annotation, categories=categories, ordered=True)
     adata.obs[annotation_key] = annotation_cat
-
-
 
 
 

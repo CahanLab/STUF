@@ -103,7 +103,7 @@ def build_gene_knn_graph(
     adata.uns[f"{key}_distances"]      = dist
 
 
-def query_gene_neighbors(
+def find_similar_genes(
     adata,
     gene: str,
     n_neighbors: int = 5,

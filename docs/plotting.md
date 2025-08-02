@@ -1,4 +1,4 @@
 # plotting functions
 
-::: pySingleCellNet.plotting
+::: stuf.plotting
 

@@ -1,6 +1,6 @@
 site_name: STUF
 site_author: Patrick Cahan
-copyright: Copyright &copy; 2025 Patrick CahanLab
+copyright: Copyright &copy; 2025 Patrick Cahan
 repo_url: https://github.com/CahanLab/STUF
 
 use_directory_urls: false
@@ -16,7 +16,7 @@ theme:
   font:
     text: Noto Sans
   palette:
-    primary: light blue
+    primary: blue grey
   logo: img/logoGlow.png
   favicon: img/logo.png
   features:
@@ -58,21 +58,15 @@ plugins:
       include_source: True
 
 nav:
-#  - Home: index.md
   - Installation: install.md
   - Tutorials: 
     - 'Quickstart': notebooks/quickstart.ipynb
-    - 'Explore': notebooks/categorize.ipynb
-#    - 'train & classify': 'notebooks/Basics.ipynb'
-#    - 'analyze _in vitro_ cells': 'notebooks/explore.ipynb'
-#    - 'prepare training data': 'notebooks/how-to_prepare_reference_data.ipynb'
-#    - 'Train a classifier': 'notebooks/train_classifier.ipynb'
-#    - 'Enrichment analysis': 'notebooks/enrichment.ipynb'
-  - Training data: training_data.md
-  - References: refs.md
+    - 'Plotting': notebooks/plotting.ipynb
+    - 'Tools': notebooks/tools.ipynb
+  - Example data: example_data.md
   - API:
-    - 'Utility functions': 'utils.md'
-    - 'Classifier functions': 'classifier.md'
-    - 'Plotting functions': 'plotting.md'
+    - 'Utilities': 'utils.md'
+    - 'Tools': 'tools.md'
+    - 'Plots': 'plotting.md'
 
 

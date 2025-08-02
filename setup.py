@@ -10,7 +10,7 @@ def get_version(package_name):
 
 setup(name='stuf',
     version=get_version('stuf'),  # Dynamically read the version
-    description='Simple Tools and Useful Functions (STUF) that make easy some common tasks in the analysis of single cell and spatial transcriptomics data.',
+    description='Spatial transcriptomics Useful Functions (STUF) makes simple tasks easy'
     long_description=open("README.md").read(),
     long_description_content_type='text/markdown',  
     author='Patrick Cahan',

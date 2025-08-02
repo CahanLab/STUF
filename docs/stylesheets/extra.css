@@ -7,3 +7,10 @@
   display: none !important;
 }
 
+/* docs/stylesheets/extra.css */
+.thin-outline {
+  border: 1px solid #ccc;       /* light grey */
+  padding: 0.5em;               /* give it some breathing room */
+  border-radius: 4px;           /* optional, matches Material’s rounding */
+}
+

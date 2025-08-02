@@ -1,10 +1,55 @@
-SingleCellNet predicts the _cell type_ of query scRNA-seq data by Random forest multi-class classification. See [Tan 2019](https://pubmed.ncbi.nlm.nih.gov/31377170/) for more details. It was [originally written in R](https://github.com/pcahan1/SingleCellNet). PySingleCellNet (**PySCN**) is the Python version, and it is compatible with [Scanpy](https://scanpy.readthedocs.io/en/stable/). PySCN was crafted to aid in the analysis of engineered cell populations (i.e. cells derived via directed differentiation of pluripotent stem cells or via direct conversion), but can just as easily be used to perform _cell typing_ on data dervived from other sources as long as adequate training data is available.
+# Spatial Transcriptomics Useful Functions (STUF)
+Using exising Spatial Transcriptomics (ST) analysis packages to perform simple analyses is surprisingly hard. This is because most ST tools were designed to solve complex problems. On the other hand, __STUF was designed to make conceptually simple tasks easy__. For example, using STUF and just a few lines of Python you can:
+
+<div style="
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, auto);
+  gap: 1rem;
+" markdown="1">
+
+<div class="thin-outline" markdown="1">
+  Find genes with expression patterns similar to a gene that you specify
+
+  ---
+
+  <figure><img src="img/similar.png" style="width:100%; height:auto;">
+    <!--<figcaption><b>Find genes with expression patterns similar to a gene that you specify</b></figcaption>-->
+  </figure>
+</div>
 
 
-<figure markdown="span">
-  ![PySCN Diagram](img/pyscn_diagram.png)
-  <figcaption>PySCN returns both cell type label predictions, and it annotates those predictions as either 'Singular', 'Intermediate', 'Hybrid', 'None', or 'Random'.</figcaption>
-</figure>
+<div class="thin-outline" markdown="1">
+  Show the expression of two genes or gene sets on one embedding
+
+  ---
+
+  <figure><img src="img/bivariate.png" style="width:100%; height:auto;">
+    <!--<figcaption><b>Show the expression of two genes or gene sets on one embedding</b></figcaption>-->
+  </figure>
+</div>
 
 
 
+<div class="thin-outline" markdown="1">
+  Rotate or flip sections
+
+  ---
+
+  <figure><img src="img/transform.png" style="width:100%; height:auto;">
+    <!--<figcaption><b>Rotate or flip sections</b></figcaption>-->
+  </figure>
+</div>
+
+
+<div class="thin-outline" markdown="1">
+  Define gradients or contours of expression
+
+  ---
+
+  <figure><img src="img/contourize.png" style="width:100%; height:auto;">
+    <!--<figcaption><b>Define regions based on gradients of expression (i.e. contours)</b></figcaption>-->
+  </figure>
+</div>
+
+</div>
