@@ -61,8 +61,8 @@ nav:
   - Installation: install.md
   - Tutorials: 
     - 'Quickstart': notebooks/quickstart.ipynb
-    - 'Plotting': notebooks/plotting.ipynb
-    - 'Tools': notebooks/tools.ipynb
+#    - 'Plotting': notebooks/plotting.ipynb
+#    - 'Tools': notebooks/tools.ipynb
   - Example data: example_data.md
   - API:
     - 'Utilities': 'utils.md'

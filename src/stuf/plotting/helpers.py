@@ -16,26 +16,24 @@ def annotate_centroids(
     text_kwargs: dict = None
 ):
     """
-    Add one label per category at its centroid on an existing Axes.
+    Annotate each category in a categorical variable at its centroid on a 2D embedding.
 
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        Pre-existing axes (e.g. from embed_categorical()).
-    adata : AnnData
-        Your AnnData with 2D coords in adata.obsm[embedding_key].
-    category_key : str
-        Column in adata.obs with the category labels.
-    embedding_key : str, optional
-        Key in adata.obsm for the (n_obs,2) coords. Default 'X_spatial'.
-    text_kwargs : dict, optional
-        Forwarded to ax.text (e.g. fontsize, color, bbox).
+    Places one text label per unique category from `adata.obs[category_key]`
+    at the mean spatial position of cells in that category using an existing matplotlib Axes.
 
-    Returns
-    -------
-    ax : matplotlib.axes.Axes
-        The same axes, with centroids annotated.
+    Args:
+        ax (matplotlib.axes.Axes): Matplotlib Axes object to draw on.
+        adata (AnnData): Annotated data matrix with embedding coordinates in `obsm`.
+        category_key (str): Key in `adata.obs` indicating categorical variable to annotate.
+        embedding_key (str, optional): Key in `adata.obsm` containing 2D coordinates. 
+            Defaults to `'X_spatial'`.
+        text_kwargs (dict, optional): Additional keyword arguments passed to `ax.text`, 
+            such as font size, color, or bbox style.
+
+    Returns:
+        matplotlib.axes.Axes: The same Axes object with centroid annotations added.
     """
+
     # default text styling for centroid labels
     defaults = {
         'fontsize': 8,
@@ -118,25 +116,34 @@ def make_bivariate_cmap(
     c11: str = "#ffff00",
     n: int = 128
 ) -> ListedColormap:
-    """Create a bivariate colormap by bilinear‐interpolating four corner colors.
+    """
+    Create a bivariate colormap by bilinear interpolation of four corner colors.
 
-    This builds an (n × n) grid of RGB colors, blending smoothly between
-    the specified corner colors:
-      - c00 at (low, low)
-      - c10 at (high, low)
-      - c01 at (low, high)
-      - c11 at (high, high)
-    
+    Generates an `(n × n)` grid of RGB values representing a smooth gradient 
+    between the four specified corner colors. The colors correspond to values
+    in a 2D data space:
+        - `c00` for (low, low)
+        - `c10` for (high, low)
+        - `c01` for (low, high)
+        - `c11` for (high, high)
+
+    This colormap can be used to simultaneously visualize two continuous variables 
+    on a 2D embedding or spatial plot.
+
     Args:
-        c00: Matplotlib color spec (hex, name, or RGB tuple) for the low/low corner.
-        c10: Color for the high/low corner.
-        c01: Color for the low/high corner.
-        c11: Color for the high/high corner.
-        n:   Resolution per axis. The total length of the returned colormap is n*n.
+        c00 (str): Color for the bottom-left corner (low x, low y). 
+            Accepts hex string, named color, or RGB tuple.
+        c10 (str): Color for the bottom-right corner (high x, low y).
+        c01 (str): Color for the top-left corner (low x, high y).
+        c11 (str): Color for the top-right corner (high x, high y).
+        n (int): Number of interpolation steps along each axis. The final 
+            colormap will contain `n * n` colors. Defaults to 128.
 
     Returns:
-        ListedColormap: A colormap with n*n entries blending between the four corners.
+        ListedColormap: A matplotlib colormap with `n*n` interpolated colors 
+        arranged from bottom-left to top-right.
     """
+
     # Convert corner colors to RGB arrays
     corners = {
         (0, 0): np.array(to_rgb(c00)),

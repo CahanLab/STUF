@@ -1,6 +1,5 @@
 from .gene import(
     build_gene_knn_graph,
-    # query_gene_neighbors,
     find_similar_genes,
     score_gene_modules,
     find_knn_modules,
@@ -17,7 +16,6 @@ from .contour import (
 # API
 __all__ = [
     "build_gene_knn_graph",
-    #"query_gene_neighbors",
     "find_similar_genes",
     "score_gene_modules",
     "find_knn_modules,"

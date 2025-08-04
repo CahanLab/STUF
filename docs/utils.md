@@ -1,6 +1,6 @@
-# utility functions
+# Utilities :material-tools:
 
-Add a brief summary here
+This is the _U_ in STUF, kindof.
 
 ::: stuf.utils
 

@@ -1,5 +1,5 @@
-# tools 
+# Tools :material-graph:
 
-Add a brief summary here
+Functions that perform analysis or that alter embeddings.
 
 ::: stuf.tools

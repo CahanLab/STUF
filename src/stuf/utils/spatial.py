@@ -8,20 +8,24 @@ from anndata import AnnData
 
 def rotate_coordinates(adata, key, degrees):
     """
-    Rotate spatial coordinates stored in adata.obsm[key] by the specified number of degrees clockwise.
-    
-    Parameters:
-    -----------
-    adata : AnnData
-        Annotated data object containing spatial coordinates.
-    key : str
-        Key in adata.obsm where the spatial coordinates are stored (e.g., 'spatial').
-        The coordinates should be an array of shape (n_cells, 2).
-    degrees : int or float
-        The angle in degrees to rotate the coordinates clockwise.
-    
-    This function modifies adata in place and does not return anything.
+    Rotate 2D spatial coordinates in `adata.obsm[key]` by a specified angle (clockwise).
+
+    Applies a 2D rotation matrix to coordinates stored in `adata.obsm[key]`, rotating 
+    them clockwise by the given number of degrees. The original coordinates are overwritten.
+
+    Args:
+        adata (AnnData): 
+            Annotated data matrix containing spatial or embedded coordinates.
+        key (str): 
+            Key in `adata.obsm` pointing to a `(n_cells, 2)` array of 2D coordinates.
+        degrees (float or int): 
+            Angle in degrees by which to rotate the coordinates clockwise.
+
+    Returns:
+        None: 
+            The function modifies `adata.obsm[key]` in place.
     """
+
     # Retrieve the original coordinates
     coords = adata.obsm[key]
     
@@ -44,22 +48,26 @@ def rotate_coordinates(adata, key, degrees):
 
 def flip_coordinates(adata, key, axis='x'):
     """
-    Flip spatial coordinates stored in adata.obsm[key] along the specified axis.
+    Flip 2D spatial coordinates in `adata.obsm[key]` along the specified axis.
 
-    Parameters:
-    -----------
-    adata : AnnData
-        Annotated data object containing spatial coordinates.
-    key : str
-        Key in adata.obsm where the spatial coordinates are stored (e.g., 'spatial').
-        The coordinates should be an array of shape (n_cells, 2) with columns [x, y].
-    axis : str
-        Axis along which to flip:
-        - 'x' (default): Flip vertically (cells at the bottom move to the top). This negates the y-coordinates.
-        - 'y': Flip horizontally (cells on the left move to the right). This negates the x-coordinates.
+    This function negates either the x- or y-coordinates, effectively reflecting 
+    the data across the specified axis. The transformation is performed in place.
 
-    This function modifies adata in place and does not return anything.
+    Args:
+        adata (AnnData): 
+            Annotated data matrix containing spatial or embedded coordinates.
+        key (str): 
+            Key in `adata.obsm` containing a `(n_cells, 2)` array of coordinates.
+        axis (str, optional): 
+            Axis to flip:
+                - `'x'`: Flip vertically by negating y-coordinates (default).
+                - `'y'`: Flip horizontally by negating x-coordinates.
+
+    Returns:
+        None: 
+            The function modifies `adata.obsm[key]` in place.
     """
+
     # Retrieve the original coordinates
     coords = adata.obsm[key]
     

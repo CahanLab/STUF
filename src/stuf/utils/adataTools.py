@@ -10,21 +10,25 @@ import scipy.sparse as sp
 
 def get_union_detected_genes(file_list, detection_fraction=0.05):
     """
-    Given a list of .h5ad files, return the union of genes that are detected
-    in at least `detection_fraction` of cells in each file.
+    Compute the union of genes detected across multiple `.h5ad` files.
 
-    Parameters
-    ----------
-    file_list : list of str
-        Paths to .h5ad files to process.
-    detection_fraction : float
-        Fraction of cells in which a gene must be detected to be included.
+    A gene is considered "detected" in a file if it is expressed in at least 
+    `detection_fraction` of the cells in that file. The function returns the 
+    union of all such genes across the given files.
 
-    Returns
-    -------
-    list of str
-        Sorted list of gene names detected in at least `detection_fraction` of cells in at least one file.
+    Args:
+        file_list (List[str]): 
+            List of file paths to `.h5ad` files to be processed.
+        detection_fraction (float, optional): 
+            Minimum fraction of cells in which a gene must be detected to be included 
+            for that file. Defaults to `0.05`.
+
+    Returns:
+        List[str]: 
+            Alphabetically sorted list of gene names that meet the detection threshold 
+            in at least one file.
     """
+
     detected_genes_sets = []
 
     for file in file_list:
@@ -48,28 +52,35 @@ def update_removed_cells(
     update_value: str = 'unassigned'
 ) -> None:
     """
-    In `adata`, find cells that had `nickname == nickname_value` but
-    were dropped (i.e. not in `adx`), then set their `nickname` to NA
-    and their `obs_cols` to `update_value`. Updates in place.
+    Update metadata for cells removed during filtering based on a nickname.
 
-    Parameters
-    ----------
-    adata
-        Original AnnData before subsetting.
-    adx
-        Filtered AnnData after QC/subsetting.
-    nickname_value
-        The nickname you originally filtered on (e.g. "E12_HL_6").
-    obs_cols
-        Which obs columns to overwrite for those removed cells.
-    update_value
-        What to set those columns to (default "unassigned").
+    Identifies cells in `adata` that were assigned `nickname_value` in the `nickname` column 
+    but are no longer present in `adx` (a filtered version of `adata`). 
+    These "removed" cells are updated in place by:
+      - Setting their `nickname` to `NA`
+      - Overwriting specified columns in `.obs` with `update_value`
 
-    Raises
-    ------
-    ValueError
-        If required columns are missing.
+    Args:
+        adata (AnnData): 
+            The original (unfiltered) AnnData object.
+        adx (AnnData): 
+            The filtered AnnData object after QC or subsetting.
+        nickname_value (str): 
+            The value in `adata.obs['nickname']` used to identify cells of interest (e.g., "E12_HL_6").
+        obs_cols (Sequence[str]): 
+            List of column names in `.obs` to update for the removed cells.
+        update_value (str, optional): 
+            The value to assign to the specified columns for removed cells. Defaults to `'unassigned'`.
+
+    Raises:
+        ValueError: 
+            If required columns are missing in `adata.obs` or if `nickname` is not present.
+    
+    Returns:
+        None: 
+            The function updates `adata` in place.
     """
+
     # 0) sanity checks
     if 'nickname' not in adata.obs.columns:
         raise ValueError("Column 'nickname' not found in adata.obs")
@@ -105,31 +116,35 @@ def summarize_obs_by_group(
     obs_keys: List[str] = ['n_genes_by_counts','total_counts','pct_counts_ribo', 'pct_counts_mt'],
 ) -> pd.DataFrame:
     """
-    Group an AnnData's obs by `group_key`, compute per-group averages of `obs_keys`, 
-    and count cells per group.
+    Summarize `.obs` metadata by groups in an AnnData object.
 
-    Parameters
-    ----------
-    adata
-        AnnData with .obs containing the grouping column and the obs_keys.
-    group_key
-        Column name in adata.obs to group cells by.
-    obs_keys
-        List of column names in adata.obs to average.
+    Groups cells by `group_key` and computes the mean of each column in `obs_keys`, 
+    along with the number of cells in each group.
 
-    Returns
-    -------
-    summary_df : pd.DataFrame
-        One row per group, with columns:
-          - group_key
-          - n_cells
-          - <each obs_key> (the mean within that group)
+    Args:
+        adata (AnnData): 
+            Annotated data matrix with `.obs` containing both the grouping variable 
+            and the observation variables to summarize.
+        group_key (str, optional): 
+            Column in `adata.obs` to group by (e.g., sample name or condition). 
+            Defaults to `'nickname'`.
+        obs_keys (List[str], optional): 
+            List of column names in `.obs` to average within each group. 
+            Defaults to `['n_genes_by_counts','total_counts','pct_counts_ribo', 'pct_counts_mt']`.
 
-    Raises
-    ------
-    ValueError
-        If group_key missing, obs_keys is empty or not a list, or any obs_key missing.
+    Returns:
+        pd.DataFrame: 
+            DataFrame with one row per group and columns:
+              - `group_key`: the group label
+              - `n_cells`: number of cells in the group
+              - One column for each `obs_key` with the groupwise mean value
+
+    Raises:
+        ValueError: 
+            If `group_key` is missing in `.obs`, if `obs_keys` is not a list or is empty, 
+            or if any `obs_key` is missing in `.obs`.
     """
+
     # -- error checking --
     if group_key not in adata.obs:
         raise ValueError(f"Group key '{group_key}' not found in adata.obs")
