@@ -8,9 +8,9 @@ def get_version(package_name):
         exec(f.read())
     return locals()['__version__']
 
-setup(name='stuf',
-    version=get_version('stuf'),  # Dynamically read the version
-    description='Spatial transcriptomics Useful Functions (STUF) makes simple tasks easy'
+setup(name='STUF',
+    version=get_version('STUF'),  # Dynamically read the version
+    description='Spatial transcriptomics Useful Functions (STUF) makes simple tasks easy',
     long_description=open("README.md").read(),
     long_description_content_type='text/markdown',  
     author='Patrick Cahan',
@@ -24,7 +24,7 @@ setup(name='stuf',
         'scanpy',        
     ],
     project_urls={
-        'Documentation': 'https://stuf.readthedocs.io/en/latest/',
-        'Source': 'https://github.com/CahanLab/stuf'
+        'Documentation': 'https://cahanlab-stuf.readthedocs-hosted.com/',
+        'Source': 'https://github.com/CahanLab/STUF'
     },
 )

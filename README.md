@@ -11,7 +11,8 @@ Doing some simple things with spatial transcriptomics data with existing tools c
 - manually add lines and shapes to your ST data
 
 <figure markdown="span">
-  ![STUF Diagram](img/stuf_diagram.png)
+  <img src="img/stuf_diagram.png" 
+       alt="diagram of STUF">
   <figcaption>STUF helps you to do lots of simple stuff.</figcaption>
 </figure>
 

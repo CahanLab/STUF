@@ -3,6 +3,7 @@ from .gene import(
     find_similar_genes,
     score_gene_modules,
     find_knn_modules,
+    what_module_has_gene,
 )
 
 from .contour import (
@@ -19,6 +20,7 @@ __all__ = [
     "find_similar_genes",
     "score_gene_modules",
     "find_knn_modules,"
+    "what_module_has_gene",
     "annotate_obs_by_threshold_combined",
     "contourize",
     "compute_contour_profile_obs",
