@@ -1,4 +1,4 @@
-"""stuf"""
+"""STUF"""
 
 from . import plotting as pl
 from . import utils as ut

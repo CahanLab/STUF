@@ -6,6 +6,7 @@ from .adataTools import (
 )
 
 from .spatial import (
+    pack_spatial_sections,
     rotate_coordinates,
     flip_coordinates,
     annotate_spatially_variable_genes,
@@ -17,6 +18,7 @@ __all__ = [
     "summarize_obs_by_group",
     "add_nickname",
     "get_union_detected_genes",
+    "pack_spatial_sections",
     "rotate_coordinates",
     "flip_coordinates",
     "annotate_spatially_variable_genes",
