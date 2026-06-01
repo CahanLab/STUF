@@ -30,6 +30,7 @@ def embed_bivariate_genes(
     cbar_kwargs: Optional[Dict[str, Any]] = None,
     cbar_fontsize: str = 'small',
     list_genes: bool = True,
+    transparent_below: Optional[float] = None,
     ax: Optional[plt.Axes] = None
 ) -> plt.Axes:
     """
@@ -68,6 +69,8 @@ def embed_bivariate_genes(
             when `ax` is not provided. Defaults to `None`.
         cbar_fontsize (str, optional): Font size for the legend labels. Defaults to `'small'`.
         list_genes (bool, optional): Whether to list gene names below the plot. Defaults to `True`.
+        transparent_below: Percentile threshold to set transparency option. Based on combined expression scores (u + v). 
+            For example, `transparent_below=25` hides the lowest 25% of cells by combined expression. Defaults to `None`.
         ax (Optional[plt.Axes], optional): Existing matplotlib Axes to plot on. If `None`, a new figure 
             and axes will be created. Defaults to `None`.
 
@@ -132,6 +135,30 @@ def embed_bivariate_genes(
         raise ValueError(f"adata.obsm['{embedding_key}'] must be (n_obs,2)")
     xy = coords[order]
 
+    # Set transparency threshold
+    if transparent_below is not None:
+        combined = u + v
+        threshold = np.percentile(combined, transparent_below)
+        
+        # Create mask for points to KEEP (above threshold)
+        mask = combined > threshold
+        
+        # Filter data
+        cols_plot = cols[mask]
+        coords_plot = coords[mask]
+        pr_plot = pr[mask]
+        
+    else:
+        cols_plot = cols
+        coords_plot = coords
+        pr_plot = pr
+        mask = np.ones(len(cols), dtype=bool)
+
+    order = np.argsort(pr_plot)
+    xy = coords_plot[order]
+    colors_ordered = cols_plot[order]
+
+
     # Axes setup
     if ax is None:
         fig, (ax, ax_cb) = plt.subplots(
@@ -148,7 +175,7 @@ def embed_bivariate_genes(
         skw.update(scatter_kwargs)
 
     # Plot scatter
-    ax.scatter(xy[:,0], xy[:,1], c=[hexcols[i] for i in order], **skw)
+    ax.scatter(xy[:,0], xy[:,1], c=colors_ordered, **skw)
     ax.set_aspect('equal')
     if not show_xcoords: ax.tick_params(bottom=False, labelbottom=False)
     if not show_ycoords: ax.tick_params(left=False, labelleft=False)
@@ -214,6 +241,7 @@ def embed_geneset(
     show_gene_names: bool = True,
     gene_fontsize: str = 'small',
     gene_y_offset: float = -0.05,
+    transparent_below: float = None,
 ) -> plt.Axes:
     """
     Plot a 2D embedding colored by summarized expression of a gene set.
@@ -257,7 +285,8 @@ def embed_geneset(
             Font size for the gene label text. Defaults to `'small'`.
         gene_y_offset (float, optional): 
             Vertical offset (in axes coordinates) for gene list annotation. Defaults to `-0.05`.
-
+        transparent_below: Percentile threshold to set transparency option. 
+            For example, `transparent_below=25` hides the lowest 25% of cells. Defaults to `None`.
     Returns:
         plt.Axes: 
             The matplotlib Axes object containing the plot.
@@ -314,6 +343,17 @@ def embed_geneset(
 
     summary = agg_func(X_rescaled, axis=1)  # shape (n_cells,)
 
+    # Set transparency threshold
+    if transparent_below is not None:
+        threshold = np.percentile(summary, transparent_below)
+        
+        # Create mask for points to KEEP (above threshold)
+        mask = summary > threshold
+        
+        # Filter data
+        summary = summary[mask]
+        coords = coords[mask]
+        
     # ---------- Sort so high expression is drawn last ----------
     order = np.argsort(summary)  # ascending: low → high
     coords_ordered = coords[order]
